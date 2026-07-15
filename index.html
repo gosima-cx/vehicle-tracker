@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>車両位置トラッカー</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    background: #f2f4f7;
+    color: #1a1a1a;
+  }
+  header {
+    background: #1d4ed8;
+    color: #fff;
+    padding: 14px 16px;
+    font-size: 18px;
+    font-weight: 600;
+    text-align: center;
+  }
+  main {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  #reader {
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 15px;
+  }
+  .row:last-child { border-bottom: none; }
+  .label { color: #666; }
+  .value { font-weight: 600; word-break: break-all; text-align: right; }
+  button {
+    width: 100%;
+    padding: 14px;
+    font-size: 17px;
+    font-weight: 700;
+    border: none;
+    border-radius: 10px;
+    margin-top: 8px;
+  }
+  #rescanBtn {
+    background: #e5e7eb;
+    color: #333;
+  }
+  #sendBtn {
+    background: #16a34a;
+    color: #fff;
+  }
+  #sendBtn:disabled {
+    background: #9ca3af;
+  }
+  /* ステータス表示は常に見える位置に置く(スキャン前のカメラエラー等も表示するため) */
+  #status {
+    text-align: center;
+    font-size: 14px;
+    min-height: 20px;
+    margin: 10px 0 4px;
+    font-weight: 600;
+  }
+  .status-ok { color: #16a34a; }
+  .status-err { color: #dc2626; }
+  .status-busy { color: #d97706; }
+  .hint {
+    font-size: 13px;
+    color: #666;
+    text-align: center;
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+
+<header>車両位置トラッカー</header>
+
+<main>
+  <div class="card">
+    <div id="reader"></div>
+    <div class="hint">車両のQRコードをカメラに写してください</div>
+    <div id="status"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="row"><span class="label">車台番号</span><span class="value" id="chassisValue">-</span></div>
+    <div class="row"><span class="label">緯度</span><span class="value" id="latValue">-</span></div>
+    <div class="row"><span class="label">経度</span><span class="value" id="lngValue">-</span></div>
+    <div class="row"><span class="label">位置精度</span><span class="value" id="accValue">-</span></div>
+    <div class="row"><span class="label">取得時刻</span><span class="value" id="timeValue">-</span></div>
+
+    <button id="sendBtn">この内容を送信</button>
+    <button id="rescanBtn">やり直してスキャン</button>
+  </div>
+</main>
+
+<script>
+// ▼▼▼ ここをApps Scriptデプロイ後のウェブアプリURL(.../exec)に書き換える ▼▼▼
+const GAS_URL = "https://script.google.com/macros/s/AKfycbw7LZUcya2Ofq_DQd0yGYk2yGXQCCQ97gksCx5kVDcb3gUR1KUqnXgfWVJ3sL1xCL5f/exec";
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+let currentData = null;
+let scanner = null;
+let isScanning = false;
+
+const resultCard = document.getElementById('resultCard');
+const sendBtn = document.getElementById('sendBtn');
+const rescanBtn = document.getElementById('rescanBtn');
+const statusEl = document.getElementById('status');
+
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = cls || '';
+}
+
+function startScanner() {
+  if (isScanning) return;
+  isScanning = true;
+  resultCard.style.display = 'none';
+  setStatus('カメラを起動しています...', 'status-busy');
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    isScanning = false;
+    setStatus('このブラウザ/接続(HTTPS必須)ではカメラを使用できません', 'status-err');
+    return;
+  }
+
+  scanner = new Html5Qrcode("reader");
+  const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+  scanner.start(
+    { facingMode: "environment" },
+    config,
+    onScanSuccess,
+    () => {} // スキャン失敗(未検出)は無視して継続
+  ).then(() => {
+    setStatus('', '');
+  }).catch((err) => {
+    isScanning = false;
+    setStatus('カメラを起動できません: ' + err, 'status-err');
+  });
+}
+
+function stopScanner() {
+  if (scanner && isScanning) {
+    scanner.stop().then(() => scanner.clear()).catch(() => {});
+  }
+  isScanning = false;
+}
+
+function onScanSuccess(decodedText) {
+  stopScanner();
+  setStatus('GPS取得中...', 'status-busy');
+
+  document.getElementById('chassisValue').textContent = decodedText;
+  resultCard.style.display = 'block';
+  sendBtn.disabled = true;
+
+  if (!navigator.geolocation) {
+    setStatus('この端末はGPS取得に対応していません', 'status-err');
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const now = new Date();
+      currentData = {
+        chassisNumber: decodedText,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        timestamp: now.toISOString()
+      };
+      document.getElementById('latValue').textContent = pos.coords.latitude.toFixed(6);
+      document.getElementById('lngValue').textContent = pos.coords.longitude.toFixed(6);
+      document.getElementById('accValue').textContent = Math.round(pos.coords.accuracy) + ' m';
+      document.getElementById('timeValue').textContent = now.toLocaleString('ja-JP');
+      sendBtn.disabled = false;
+      setStatus('内容を確認して送信してください', '');
+    },
+    (err) => {
+      setStatus('GPS取得エラー: ' + err.message, 'status-err');
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
+sendBtn.addEventListener('click', () => {
+  if (!currentData) return;
+  sendBtn.disabled = true;
+  setStatus('送信中...', 'status-busy');
+
+  // GASのCORSプリフライトを回避するため text/plain で送信し、
+  // サーバー側(doPost)でJSON.parseする
+  fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(currentData)
+  })
+    .then((res) => res.json())
+    .then((json) => {
+      if (json.status === 'ok') {
+        setStatus('送信完了しました', 'status-ok');
+      } else {
+        setStatus('送信エラー: ' + json.message, 'status-err');
+        sendBtn.disabled = false;
+      }
+    })
+    .catch((err) => {
+      setStatus('通信エラー: ' + err, 'status-err');
+      sendBtn.disabled = false;
+    });
+});
+
+rescanBtn.addEventListener('click', () => {
+  currentData = null;
+  startScanner();
+});
+
+window.addEventListener('load', startScanner);
+</script>
+
+</body>
+</html>
