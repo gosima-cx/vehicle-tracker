@@ -104,7 +104,6 @@
     <div class="row"><span class="label">経度</span><span class="value" id="lngValue">-</span></div>
     <div class="row"><span class="label">位置精度</span><span class="value" id="accValue">-</span></div>
     <div class="row"><span class="label">取得時刻</span><span class="value" id="timeValue">-</span></div>
-    <div class="row"><span class="label">端末ID</span><span class="value" id="deviceValue">-</span></div>
 
     <button id="sendBtn">この内容を送信</button>
     <button id="rescanBtn">やり直してスキャン</button>
@@ -207,7 +206,6 @@ function onScanSuccess(decodedText) {
       document.getElementById('lngValue').textContent = pos.coords.longitude.toFixed(6);
       document.getElementById('accValue').textContent = Math.round(pos.coords.accuracy) + ' m';
       document.getElementById('timeValue').textContent = now.toLocaleString('ja-JP');
-      document.getElementById('deviceValue').textContent = DEVICE_ID;
       sendBtn.disabled = false;
       setStatus('内容を確認して送信してください', '');
     },
