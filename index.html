@@ -104,6 +104,7 @@
     <div class="row"><span class="label">経度</span><span class="value" id="lngValue">-</span></div>
     <div class="row"><span class="label">位置精度</span><span class="value" id="accValue">-</span></div>
     <div class="row"><span class="label">取得時刻</span><span class="value" id="timeValue">-</span></div>
+    <div class="row"><span class="label">端末ID</span><span class="value" id="deviceValue">-</span></div>
 
     <button id="sendBtn">この内容を送信</button>
     <button id="rescanBtn">やり直してスキャン</button>
@@ -114,6 +115,20 @@
 // ▼▼▼ ここをApps Scriptデプロイ後のウェブアプリURL(.../exec)に書き換える ▼▼▼
 const GAS_URL = "https://script.google.com/macros/s/AKfycbw7LZUcya2Ofq_DQd0yGYk2yGXQCCQ97gksCx5kVDcb3gUR1KUqnXgfWVJ3sL1xCL5f/exec";
 // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+// 端末ごとに自動採番されるID。ログイン不要のまま「どの端末が送信したか」を
+// 区別するために使う(localStorageに保存され、同じ端末・同じブラウザなら
+// 次回以降も同じIDが使われ続ける)。
+function getDeviceId() {
+  const key = 'vehicleTrackerDeviceId';
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+const DEVICE_ID = getDeviceId();
 
 let currentData = null;
 let scanner = null;
@@ -185,12 +200,14 @@ function onScanSuccess(decodedText) {
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
-        timestamp: now.toISOString()
+        timestamp: now.toISOString(),
+        deviceId: DEVICE_ID
       };
       document.getElementById('latValue').textContent = pos.coords.latitude.toFixed(6);
       document.getElementById('lngValue').textContent = pos.coords.longitude.toFixed(6);
       document.getElementById('accValue').textContent = Math.round(pos.coords.accuracy) + ' m';
       document.getElementById('timeValue').textContent = now.toLocaleString('ja-JP');
+      document.getElementById('deviceValue').textContent = DEVICE_ID;
       sendBtn.disabled = false;
       setStatus('内容を確認して送信してください', '');
     },
